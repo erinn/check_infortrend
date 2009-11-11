@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python -O
 #Remove -O to get debugging output
 
 '''
@@ -229,7 +229,7 @@ class CheckInfortrend(Snmp):
         # 18 : Drive is a valid Clone of another Drive
         # 128 to 143 : SCSI Device
         
-        warningCodes  = {0:'New Drive', 
+        warningCodes  = {0:'New (Unassigned) Drive', 
                          4:'Drive Initialization in Progress', 
                          5:'Drive Rebuild in Progress', 
                          6:'Add Drive to Logical Drive in Progress', 
