@@ -2,14 +2,19 @@
 #Remove -O to get debugging output
 
 '''
-Version: 1.0                                                                
+Nagios plugin to perform SNMP queries against Infortrend based RAIDs, this
+includes Sun StorEdge 3510 and 3511 models. Parses the results and gives
+an overall view of the health of the RAID.
+
+Version: 2.0                                                                
 Created: 2009-10-30                                                      
 Author: Erinn Looney-Triggs
-Revised:
-Revised by: 
+Revised: 2009-11-12
+Revised by: Erinn Looney-Triggs
+
 
 License:
-    <one line to give the program's name and a brief idea of what it does.>
+    check_infortrend, performs SNMP queries again infortrend based RAIDS
     Copyright (C) 2009  Erinn Looney-Triggs
 
     This program is free software: you can redistribute it and/or modify
@@ -79,14 +84,14 @@ class Snmp(object):
                             'executable by you, exiting.')
             sys.exit(CRITICAL)
             
-        cmdLine = ('{snmpCmd} -v {version} -O vq -c {community} '
+        cmdLine = ('{snmpCmd} -v {version} -O v -c {community} '
                    '{destHost} {oid}')
         
         cmdLine = cmdLine.format(snmpCmd = snmpCmd, version = self.version, 
                                  community = self.community, 
                                  destHost= self.destHost, oid = oid)
         
-        if self.verbose:
+        if self.verbose > 1:
             print 'Performing SNMP query:', cmdLine
         
         try:
@@ -98,12 +103,33 @@ class Snmp(object):
             sys.exit(WARNING) 
         
         #This is where we sanitize the output gathered.
+         
         output = p.stdout.read().strip()
         
-        if snmpCmd == 'snmpwalk':
-            output = output.split()
+        if self.verbose > 1:
+            print 'Debug2: Raw output obtained from query:', output
         
-        return output
+        if output.find(':') == -1:
+            finalOutput = output
+        else:    
+            if snmpCmd == 'snmpwalk':
+                finalOutput = []
+                for item in output.split('\n'):
+                    style, value = item.split(':')
+                    if style == 'INTEGER':
+                        finalOutput.append(int(value))
+                    elif style == 'STRING':
+                        finalOutput.append(value)
+            
+            elif snmpCmd == 'snmpget':
+                style, value = output.split(':')
+                if style == 'INTEGER':
+                    finalOutput = int(value)
+                elif style == 'STRING':
+                    finalOutput = value           
+                    
+        
+        return finalOutput
     
     def __which(self, program):
         '''This is the equivalent of the 'which' BASH built-in with a 
@@ -147,9 +173,8 @@ class CheckInfortrend(Snmp):
     def __init__(self, community = 'public', destHost = 'localhost', 
                  verbose = 0, version = '2c'):
         
-        self.baseoid = ''           #Base OID found during auto detect
-        self.community = community
-        self.destHost = destHost
+        #Base OID found during auto detect
+        self.baseoid = ''
         
         # Holder for state counts
         self.state = {'critical' : 0, 'unknown': 0, 'warning' : 0}
@@ -158,12 +183,8 @@ class CheckInfortrend(Snmp):
         self.output = []
         self.perfData = []
         
-        self.verbose = verbose
-        self.version = version
-        
         # Initialize our superclass
-        Snmp.__init__(self, self.version, self.destHost, self.community, 
-                      self.verbose)
+        Snmp.__init__(self, version, destHost, community, verbose)
         
     def autoDetect(self):
         '''
@@ -184,7 +205,7 @@ class CheckInfortrend(Snmp):
                     '1.3.6.1.4.1.42.2.180.3510.1.',]
         
         for baseoid in baseoids:
-            result = self.query('snmpget', baseoid + '1.1.1.10')
+            result = self.query('snmpget', baseoid + '1.1.1.10.0')
             
             if result != 'No Such Object available on this agent at this OID':
                 self.baseoid = baseoid
@@ -194,7 +215,7 @@ class CheckInfortrend(Snmp):
             print 'Unable to auto detect array type, exiting.'
             sys.exit(CRITICAL)
         
-        if self.verbose:
+        if self.verbose > 1:
             print 'Base OID set to:', self.baseoid
         
         return
@@ -212,7 +233,8 @@ class CheckInfortrend(Snmp):
         self.checkDriveStatus()
         self.checkDeviceStatus()
         self.parsePrint()
-        
+
+            
     def __checkHddStatus(self, hdds):
         '''
         For internal use, parses list returned from hddStatus OID and checks
@@ -244,18 +266,9 @@ class CheckInfortrend(Snmp):
                          255:'Failed Drive'
                          }
         
-        
-        
-        if __debug__:
-            print 'Debug: Warning codes dictionary:', warningCodes
-            print 'Debug: Critical codes dictionary:', criticalCodes
-            print 'Debug: List of hdds to check:', hdds
-        
         for drive, status in enumerate(hdds):
-            if __debug__:
-                print 'Debug: checking drive:', drive, 'with status:', status
-            
-            status = int(status)
+            if self.verbose > 1:
+                print 'Debug2: checking drive:', drive, 'with status:', status
             
             if status in criticalCodes:
                 self.state['critical'] += 1
@@ -266,11 +279,6 @@ class CheckInfortrend(Snmp):
                 self.state['warning'] += 1
                 self.output.append('Drive ' + str(drive + 1) + ': ' 
                                 + warningCodes[status])
-                
-        
-        if __debug__:
-            print ('Debug: Results gathered before exiting __checkHddStatus:'
-                   '{0} {1}').format(self.state, self.output)
             
         return
     
@@ -293,13 +301,10 @@ class CheckInfortrend(Snmp):
                          }
         
         for drive, status in enumerate(logicalDrives):
-            if __debug__:
-                print ('Debug: Checking logical drive: '
+            if self.verbose > 1:
+                print ('Debug2: Checking logical drive: '
                        '{0} with status: {1}').format(drive, status)
-             
-            status = int(status)
             
-
             if status in criticalCodes:
                 self.state['critical'] += 1
                 self.output.append('Logical Drive ' + str(drive + 1) + ': ' 
@@ -320,15 +325,34 @@ class CheckInfortrend(Snmp):
         temperatures, etc.
         
         This method expects no arguments.
-        
-        OIDs we want:
-        Logical Unit Status       1.3.6.1.4.1.1714.1.9.1.13
         '''
         
-#         ('Logical Unit Index:', '1.3.6.1.4.1.1714.1.9.1', 'snmpwalk'),
-        # OIDs of interest here 
-        pass
-    
+        luDevTypeCodes = {1:'Power Supply', 2:'Fan', 3:'Temperature Sensor',
+                          4:'UPS', 5:'Voltage Sensors', 6:'Current Sensors',
+                          8:'Temperature Out-of-Range Flags', 9:'Door',
+                          10:'Speaker', 11:'Battery-backup battery',
+                          12:'Slot States',
+                          }
+        
+        #Description as a string
+        luDevDescription = ('Logical unit device description:',
+                            self.baseoid + '1.9.1.8', 'snmpwalk')
+        #Type of device by code
+        luDevType = ('Logical unit device type:',
+                     self.baseoid + '1.9.1.6', 'snmpwalk')
+        #Values of temps etc.
+        luDevValue = ('Logical unit device value:', 
+                      self.baseoid + '1.9.1.9', 'snmpwalk')
+        #Status of devices
+        luDevStatus = ('Logical unit device status:', 
+                       self.baseoid + '1.9.1.13', 'snmpwalk')
+        
+        deviceDescription = self.__query(luDevDescription)
+        deviceType = self.__query(luDevType)
+        deviceValue = self.__query(luDevValue)
+        deviceStatus = self.__query(luDevStatus)
+        
+            
     def checkDriveStatus(self):
         '''
         Check the Hard Drive Status of the RAID and return the result.
@@ -346,59 +370,40 @@ class CheckInfortrend(Snmp):
         ldTotalDrvCnt = ('Logical Drives:', self.baseoid + '1.2.1.8', 
                          'snmpwalk')
         ldSpareDrvCnt = ('Spare Drives:', self.baseoid + '1.2.1.10',
-                 'snmpwalk')
+                         'snmpwalk')
         ldFailedDrvCnt = ('Failed Drives:', self.baseoid + '1.2.1.11', 
                           'snmpwalk')
         ldStatus = ('Logical Drive Status:', self.baseoid + '1.2.1.6',
-                     'snmpwalk')
+                    'snmpwalk')
         hddStatus = ('Hard Drive Status:', self.baseoid + '1.6.1.11',
-                      'snmpwalk')
+                     'snmpwalk')
         
-        #TODO: Clearly there is some redundancy here
-        # Get the logical drive count
-        check, oid, snmpCmd = ldTotalDrvCnt
-        driveCount = ','.join(self.query(snmpCmd, oid))
-        
-        if self.verbose:
-            print check, driveCount
-            
+
+        # Get the logical drive count 
+        check, driveCount = self.__query(ldTotalDrvCnt)
+        driveCount = ','.join(['%s' % el for el in driveCount])          
         self.output.append(check + driveCount)
         
         # Get the spare drive count
-        check, oid, snmpCmd = ldSpareDrvCnt
-        spareCount = ','.join(self.query(snmpCmd, oid))
-        
-        if self.verbose:
-            print check, spareCount
-            
+        check, spareCount = self.__query(ldSpareDrvCnt)
+        spareCount = ','.join(['%s' % el for el in spareCount])
         self.output.append(check + spareCount)
         
         # Get the failed drive count
-        check, oid, snmpCmd = ldFailedDrvCnt
-        failedCount = ','.join(self.query(snmpCmd, oid))
-        
-        if self.verbose:
-            print check, failedCount
-            
+        check, failedCount = self.__query(ldFailedDrvCnt)
+        failedCount = ','.join(['%s' % el for el in failedCount])
         self.output.append(check + failedCount)
         
         # Get the logical disk status
-        check, oid, snmpCmd = ldStatus
-        logicalDriveStatus = self.query(snmpCmd, oid)
-        
-        if self.verbose:
-            print check , logicalDriveStatus
-        
+        check, logicalDriveStatus = self.__query(ldStatus)
         self.__checkLdStatus(logicalDriveStatus)
         
         #Get the status of the hard drives
-        check, oid, snmpCmd = hddStatus
-        driveStatus =  self.query(snmpCmd, oid)
-        
-        if self.verbose:
-            print check , driveStatus
-        
+        check, driveStatus =  self.__query(hddStatus)
         self.__checkHddStatus(driveStatus)
+        
+        if self.verbose > 1:
+            print 'Debug: Output from checkDriveStatus:', self.output
         
         return
     
@@ -419,42 +424,22 @@ class CheckInfortrend(Snmp):
                           self.baseoid + '1.1.1.5.0', 'snmpget')
         
         # Get the vendor string
-        check, oid, snmpCmd = privateLogoVendor
-        vendor = self.query(snmpCmd, oid)
-        if self.verbose:
-            print check, vendor
-            
+        check, vendor = self.__query(privateLogoVendor)   
         self.output.append(check + vendor)
         
         # Get the Manufacturers model
-        check, oid, snmpCmd = privateLogoString
-        model = self.query(snmpCmd, oid)
-        if self.verbose:
-            print check, model
-            
+        check, model = self.__query(privateLogoString)
         self.output.append(check + model)
         
         # Get the serial number
-        check, oid, snmpCmd = serialNum
-        serialNumber = self.query(snmpCmd, oid)
-        if self.verbose:
-            print check, serialNumber
-            
-        self.output.append(check + serialNumber)
+        check, serialNumber = self.__query(serialNum)
+        self.output.append('{0}{1}'.format(check, serialNumber))
         
         # Get the major and minor firmware versions
-        check, oid, snmpCmd = fwMajorVersion
-        firmwareMajor = self.query(snmpCmd, oid)
-        if self.verbose:
-            print check, firmwareMajor
-        
-        check, oid, snmpCmd = fwMinorVersion
-        firmwareMinor = self.query(snmpCmd, oid)
-        if self.verbose:
-            print check, firmwareMinor
-        
-        self.output.append('Firmware Version:' + firmwareMajor 
-                   + '.' + firmwareMinor)
+        check, firmwareMajor = self.__query(fwMajorVersion)
+        check, firmwareMinor = self.__query(fwMinorVersion)
+        self.output.append('Firmware Version:{0}.{1}'.format(firmwareMajor, 
+                                                             firmwareMinor))
         
         if __debug__:
             print 'Debug: Output from checkModelFirmware:', self.output
@@ -508,6 +493,18 @@ class CheckInfortrend(Snmp):
         
         return None #Should never be reached
     
+    def __query(self, items):
+        '''
+        For internal use, requires one input a tuple of items to be
+        checked. 
+        '''
+        check, oid, snmpCmd = items
+        result = self.query(snmpCmd, oid)
+        
+        if self.verbose:
+            print check, result
+        
+        return check, result
 
 def sigalarm_handler(signum, frame):
     '''Handler for an alarm situation.'''
