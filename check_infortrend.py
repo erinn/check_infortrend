@@ -6,7 +6,7 @@ Nagios plugin to perform SNMP queries against Infortrend based RAIDs, this
 includes Sun StorEdge 3510 and 3511 models. Parses the results and gives
 an overall view of the health of the RAID.
 
-Version: 2.0                                                                
+Version: 1.5                                                                
 Created: 2009-10-30                                                      
 Author: Erinn Looney-Triggs
 Revised: 2009-11-12
@@ -14,7 +14,7 @@ Revised by: Erinn Looney-Triggs
 
 
 License:
-    check_infortrend, performs SNMP queries again infortrend based RAIDS
+    check_infortrend, performs SNMP queries again Infortrend based RAIDS
     Copyright (C) 2009  Erinn Looney-Triggs
 
     This program is free software: you can redistribute it and/or modify
@@ -32,6 +32,11 @@ License:
 
 '''
 
+#TODO:
+# If failed drive pull serial number
+# perfdata output for trending
+# device status
+# cache check
 
 
 import sys
@@ -54,11 +59,8 @@ class Snmp(object):
     '''
     A Basic Class For an SNMP Session
     '''
-    def __init__(self,
-                version = '2c',
-                destHost = 'localhost',
-                community = 'public',
-                verbose = 0):
+    def __init__(self, version='2c', destHost='localhost', community='public',
+                verbose=0):
 
         self.community = community
         self.destHost = destHost
@@ -119,6 +121,10 @@ class Snmp(object):
                     if style == 'INTEGER':
                         finalOutput.append(int(value))
                     elif style == 'STRING':
+                        #Strip out whitespace then strip quotes
+                        finalOutput.append(value.strip().strip('"'))
+                    else:
+                        #We treat any unknowns as strings
                         finalOutput.append(value)
             
             elif snmpCmd == 'snmpget':
@@ -126,7 +132,11 @@ class Snmp(object):
                 if style == 'INTEGER':
                     finalOutput = int(value)
                 elif style == 'STRING':
-                    finalOutput = value           
+                    #Strip out whitespace then strip quotes
+                    finalOutput = value.strip().strip('"')           
+                else:
+                    #We treat any unknowns as strings
+                    finalOutput.append(value)
                     
         
         return finalOutput
@@ -170,8 +180,8 @@ class CheckInfortrend(Snmp):
     supported
     '''
     
-    def __init__(self, community = 'public', destHost = 'localhost', 
-                 verbose = 0, version = '2c'):
+    def __init__(self, community='public', destHost='localhost', 
+                 verbose=0, version='2c'):
         
         #Base OID found during auto detect
         self.baseoid = ''
@@ -212,13 +222,14 @@ class CheckInfortrend(Snmp):
                 break
         
         if not self.baseoid:
-            print 'Unable to auto detect array type, exiting.'
+            print ('Unable to auto detect array type at host: {0}, '
+                   'exiting.').format(self.destHost)
             sys.exit(CRITICAL)
         
         if self.verbose > 1:
             print 'Base OID set to:', self.baseoid
         
-        return
+        return None
        
     def check(self):
         '''
@@ -233,8 +244,23 @@ class CheckInfortrend(Snmp):
         self.checkDriveStatus()
         self.checkDeviceStatus()
         self.parsePrint()
-
-            
+        
+        return None
+    
+    def __checkBattery(self, deviceDescription, status, value):
+        pass
+    
+    def __checkCurrentSensor(self, deviceDescription, status, value):
+        
+        return None
+    
+    def __checkDoor(self, deviceDescription, status, value):
+        return None
+    
+    def __checkFan(self, deviceDescription, status, value):
+        
+        return None
+        
     def __checkHddStatus(self, hdds):
         '''
         For internal use, parses list returned from hddStatus OID and checks
@@ -280,7 +306,7 @@ class CheckInfortrend(Snmp):
                 self.output.append('Drive ' + str(drive + 1) + ': ' 
                                 + warningCodes[status])
             
-        return
+        return None
     
     def __checkLdStatus(self, logicalDrives):
         '''
@@ -312,12 +338,76 @@ class CheckInfortrend(Snmp):
                 
             elif int(status) in warningCodes:
                 self.state['warning'] += 1
-                self.output.append('Drive ' + str(drive + 1) + ': ' 
+                self.output.append('Logical Drive ' + str(drive + 1) + ': ' 
                                 + warningCodes[int(status)])      
         
         return None
     
-
+    def __checkPowerSupply(self, deviceDescription, status, value):
+        pass
+    
+    def __checkSpeaker(self, deviceDescription, status, value):
+        pass
+    
+    def __checkSlotStates(self, deviceDescription, status, value):
+        pass
+    
+    def __checkTempFlags(self, deviceDescription, status, value):
+        return None
+    
+    def __checkTempSensor(self, deviceDescription, status, sensorValue):
+        '''
+        BIT 0 - CLEAR:  Temp. sensor functioning normally.
+                                    SET:    Temp. sensor malfunctioning.
+                    BIT 1 - 3: If == 0, Temp. within safe range.
+                                       If == 2, Cold Temp. Warning.
+                                       If == 3, Hot Temp. Warning.
+                                       If == 4, Cold Temp. Limit Exceeded.
+                                       If == 5, Hot Temp. Limit Exceeded.
+                    BIT 6 - CLEAR:  Temp. Sensor is Activated.
+                                    SET:    Temp. Sensor is NOT Activated.
+                    BIT 7 - CLEAR:  Temperature sensor IS present.
+                                    SET:    Temperature sensor is NOT present.
+                    == 0xff - Status unknown.
+        '''
+        
+        #Temperature is in Celcius
+        temperature = (sensorValue / 2 ** 17 )  - 274
+        
+        self.perfData.append("'{0}'={1};warn;crit;min;max"
+                             .format(deviceDescription, temperature))
+        
+        #If status is 0 everything is hunkey dorey
+        if status != 0:
+            #Begin building our output line
+            outputLine = deviceDescription + ':'
+            
+            binary = bin(status)
+            
+            if self.verbose > 1:
+                print 'Status code:{0}, binary:{1}'.format(status, binary)
+                
+            if binary[-1] == '1':
+                outputLine += 'Temperature sensor is malfunctioning'
+                self.state['critical'] += 1
+            if binary[-6] == '1':
+                outputLine += 'Temperature sensor is not activated'
+                self.state['warning'] += 1
+            if binary[-7] == '1':
+                outputLine += 'Temperature sensor is not present'
+                self.state['critical'] += 1
+            self.output.append(outputLine)           
+        
+        return None
+    
+    def __checkUPS(self, deviceDescription, value, status):
+        
+        return None
+    
+    def __checkVoltageSensor(self, deviceDescription, value, status):
+        
+        return None
+        
     def checkDeviceStatus(self):
         '''
         Check the status of the RAID device and most associated components.
@@ -327,11 +417,17 @@ class CheckInfortrend(Snmp):
         This method expects no arguments.
         '''
         
-        luDevTypeCodes = {1:'Power Supply', 2:'Fan', 3:'Temperature Sensor',
-                          4:'UPS', 5:'Voltage Sensors', 6:'Current Sensors',
-                          8:'Temperature Out-of-Range Flags', 9:'Door',
-                          10:'Speaker', 11:'Battery-backup battery',
-                          12:'Slot States',
+        luDevTypeCodes = {1:(self.__checkPowerSupply), 
+                          2:(self.__checkFan), 
+                          3: self.__checkTempSensor,
+                          4:(self.__checkUPS), 
+                          5:(self.__checkVoltageSensor), 
+                          6:(self.__checkCurrentSensor),
+                          8:(self.__checkTempFlags),
+                          9:(self.__checkDoor),
+                          10:(self.__checkSpeaker), 
+                          11:(self.__checkBattery),
+                          17:(self.__checkSlotStates),
                           }
         
         #Description as a string
@@ -347,12 +443,18 @@ class CheckInfortrend(Snmp):
         luDevStatus = ('Logical unit device status:', 
                        self.baseoid + '1.9.1.13', 'snmpwalk')
         
-        deviceDescription = self.__query(luDevDescription)
-        deviceType = self.__query(luDevType)
-        deviceValue = self.__query(luDevValue)
-        deviceStatus = self.__query(luDevStatus)
+        check, deviceDescription = self.__query(luDevDescription)
+        check, deviceType = self.__query(luDevType)
+        check, deviceValue = self.__query(luDevValue)
+        check, deviceStatus = self.__query(luDevStatus)
         
-            
+        #print (luDevTypeCodes[3](deviceDescription[0],deviceStatus[0], deviceValue[0]))
+                               
+        for number, device in enumerate(deviceType):
+            luDevTypeCodes[device](deviceDescription[number], 
+                                   deviceStatus[number], deviceValue[number])
+        return None
+        
     def checkDriveStatus(self):
         '''
         Check the Hard Drive Status of the RAID and return the result.
@@ -405,7 +507,7 @@ class CheckInfortrend(Snmp):
         if self.verbose > 1:
             print 'Debug: Output from checkDriveStatus:', self.output
         
-        return
+        return None
     
     def checkModelFirmware(self):
         '''
@@ -444,7 +546,7 @@ class CheckInfortrend(Snmp):
         if __debug__:
             print 'Debug: Output from checkModelFirmware:', self.output
         
-        return
+        return None
     
     def parsePrint(self):
         '''
@@ -474,9 +576,9 @@ class CheckInfortrend(Snmp):
         
         # Add in performance data if it exists
         if self.perfData:
-            finalLine += '|'
+            finalLine += '| '
             for line in self.perfData:
-                finalLine += line
+                finalLine += line + ' '
         
         #Construct and print our final output
         finalOutput = finalOutput.format(status = status, output = finalLine)
@@ -523,7 +625,7 @@ if __name__ == '__main__':
     parser = optparse.OptionParser(description='''Nagios plug-in to monitor
     Infortrend based RAIDs, this includes some Sun StorEdge RAIDs such 
     as the 3510 and the 3511.''', prog="check_infortrend", 
-    version="%prog Version: 1.0")
+    version="%prog Version: 1.5")
     
     parser.add_option('-c', '--community', action='store', 
                       dest='community', type='string',default='public', 
