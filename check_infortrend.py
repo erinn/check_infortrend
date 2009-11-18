@@ -34,11 +34,10 @@ License:
 
 #TODO:
 # If failed drive pull serial number
-# perfdata output for trending
-# device status
 # cache check
 
-
+import os
+import subprocess
 import sys
 
 __author__ = 'Erinn Looney-Triggs'
@@ -49,7 +48,7 @@ __email__ = 'erinn.looneytriggs@gmail.com'
 __version__ = 1.0
 __status__ = 'Development'
 
-#Nagios exit codes in English
+# Nagios exit codes in English
 UNKNOWN  = 3
 CRITICAL = 2
 WARNING  = 1
@@ -76,8 +75,6 @@ class Snmp(object):
         
         oid is a required string that is the numerical OID to be used.
         '''
-        
-        import subprocess
         
         fullSnmpCmd = self.__which(snmpCmd)
         
@@ -111,7 +108,7 @@ class Snmp(object):
         if self.verbose > 1:
             print 'Debug2: Raw output obtained from query:', output
         
-        if output.find(':') == -1:
+        if output.find(':') == -1:  #To catch SNMP errors and output them
             finalOutput = output
         else:    
             if snmpCmd == 'snmpwalk':
@@ -145,8 +142,6 @@ class Snmp(object):
         '''This is the equivalent of the 'which' BASH built-in with a 
         check to make sure the program that is found is executable.
         '''
-        
-        import os
         
         def is_exe(file_path):
             '''Tests that a file exists and is executable.
@@ -231,7 +226,7 @@ class CheckInfortrend(Snmp):
         
         return None
        
-    def check(self):
+    def checkAll(self):
         '''
         Convenience method that will run all of the checks against the 
         RAID.
@@ -247,17 +242,234 @@ class CheckInfortrend(Snmp):
         
         return None
     
-    def __checkBattery(self, deviceDescription, status, value):
-        pass
-    
-    def __checkCurrentSensor(self, deviceDescription, status, value):
+    def __checkBattery(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the battery status. Expects a string for
+        the deviceDescription, an integer for the status and an integer for
+        the sensorValue.
+        '''
+        
+        # If status is 0 everything is copasetic
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Battery is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-2] == '1':
+                    outputLine.append('Battery charging on')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try: 
+                numeral = binary[-4:-2] 
+                numeral = int('0b' + numeral, 2)
+            
+                if numeral == 1:
+                    outputLine.append('Battery not fully charged')
+                    self.state['warning'] += 1
+                elif numeral == 2:
+                    outputLine.append('Battery charge critically low') 
+                    self.state['warning'] += 1
+                elif numeral == 3:
+                    outputLine.append('Battery completely drained')
+                    self.state['critical'] += 1
+                 
+            except IndexError:
+                pass
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Battery-backup is disabled')
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Battery is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
         
         return None
     
-    def __checkDoor(self, deviceDescription, status, value):
+    def __checkCurrentSensor(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the current sensor status. Expects a 
+        string for the deviceDescription, an integer for the status and 
+        an integer for the sensorValue.
+        '''
+        
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Current sensor malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+               
+            try: 
+                numeral = binary[-4:-1]
+                    
+            except IndexError:
+                pass
+            
+            numeral = int('0b' + numeral, 2)
+            
+            if numeral == 3:
+                outputLine.append('Over current warning')
+                self.state['warning'] += 1
+            elif numeral == 5:
+                outputLine.append('Over current limit exceeded')
+                self.state['critical'] += 1
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Current sensor is not activated')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Current sensor not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
+        
         return None
     
-    def __checkFan(self, deviceDescription, status, value):
+    def __checkDoor(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the current sensor status. Expects a 
+        string for the deviceDescription, an integer for the status and 
+        an integer for the sensorValue.
+        '''
+        
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Door, door lock, or door sensor '
+                                      'malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-2] == '1':
+                    outputLine.append('Door is open')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Door lock not engaged')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Door is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
+        
+        return None
+    
+    def __checkFan(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the fan status. Expects a string 
+        for the deviceDescription, an integer for the status and an 
+        integer for the sensorValue.
+        '''
+#        warnRPM = '14000'
+#        critRPM = '15000'
+#        minRPM = '0'
+#        maxRPM = '15000'
+#        
+#        self.perfData.append("'{0}'={1};{2};{3};{4};{5}"
+#                             .format(deviceDescription, sensorValue, warnRPM,
+#                                     critRPM, minRPM, maxRPM))
+        
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Fan is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Fan is off')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Fan is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
         
         return None
         
@@ -343,68 +555,360 @@ class CheckInfortrend(Snmp):
         
         return None
     
-    def __checkPowerSupply(self, deviceDescription, status, value):
-        pass
+    def __checkPowerSupply(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the Power supply status. Expects a string 
+        for the deviceDescription, an integer for the status and an 
+        integer for the sensorValue.
+        '''
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Power supply is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Power supply is off')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Power supply is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
+        
+        return None
     
-    def __checkSpeaker(self, deviceDescription, status, value):
-        pass
+    def __checkSpeaker(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the speaker status. Expects a 
+        string for the deviceDescription, an integer for the status and 
+        an integer for the sensorValue.
+        '''
+        
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Speaker is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Speaker is off')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Speaker is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
+        
+        return None
     
-    def __checkSlotStates(self, deviceDescription, status, value):
-        pass
-    
-    def __checkTempFlags(self, deviceDescription, status, value):
+    def __checkSlotStates(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the slot status. Expects a 
+        string for the deviceDescription, an integer for the status and 
+        an integer for the sensorValue.
+        '''
+        
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Slot sense circuitry is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-2] == '1':
+                    outputLine.append('Device in slot has been marked bad '
+                                      'and is awaiting a replacement')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-3] == '1':
+                    outputLine.append('Slot is not activated')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Slot is ready for insertion/removal')
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Slot is empty')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
+        
         return None
     
     def __checkTempSensor(self, deviceDescription, status, sensorValue):
         '''
-        BIT 0 - CLEAR:  Temp. sensor functioning normally.
-                                    SET:    Temp. sensor malfunctioning.
-                    BIT 1 - 3: If == 0, Temp. within safe range.
-                                       If == 2, Cold Temp. Warning.
-                                       If == 3, Hot Temp. Warning.
-                                       If == 4, Cold Temp. Limit Exceeded.
-                                       If == 5, Hot Temp. Limit Exceeded.
-                    BIT 6 - CLEAR:  Temp. Sensor is Activated.
-                                    SET:    Temp. Sensor is NOT Activated.
-                    BIT 7 - CLEAR:  Temperature sensor IS present.
-                                    SET:    Temperature sensor is NOT present.
-                    == 0xff - Status unknown.
+        For internal use, checks the temperature sensor and returns the 
+        value as perfdata to be used by nagios. Expects a string for
+        the deviceDescription, an integer for the status and an integer for
+        the sensorValue.
         '''
         
-        #Temperature is in Celcius
+        # Temperature is in Celcius
         temperature = (sensorValue / 2 ** 17 )  - 274
         
-        self.perfData.append("'{0}'={1};warn;crit;min;max"
-                             .format(deviceDescription, temperature))
+        warnTemp = '60'
+        critTemp = '70'
+        minTemp = '0'
+        maxTemp = '100'
         
-        #If status is 0 everything is hunkey dorey
+        self.perfData.append("'{0}'={1};{2};{3};{4};{5}"
+                             .format(deviceDescription, temperature, warnTemp,
+                                     critTemp, minTemp, maxTemp))
+        
+        # If status is 0 everything is copasetic
         if status != 0:
-            #Begin building our output line
-            outputLine = deviceDescription + ':'
+            outputLine = []
             
-            binary = bin(status)
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
             
             if self.verbose > 1:
-                print 'Status code:{0}, binary:{1}'.format(status, binary)
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Temperature sensor is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            try: 
+                numeral = binary[-4:-1] 
+                numeral = int('0b' + numeral, 2)
+            
+                if numeral == 2:
+                    outputLine.append('Cold temperature warning')
+                    self.state['warning'] += 1
+                elif numeral == 3:
+                    outputLine.append('Hot temperature warning') 
+                    self.state['warning'] += 1
+                elif numeral == 4:
+                    outputLine.append('Cold temperature limit exceeded')
+                    self.state['critical'] += 1
+                elif numeral == 5:
+                    outputLine.append('Hot temperature limit exceeded')
+                    self.state['critical'] += 1
+                    
+            except IndexError:
+                pass
                 
-            if binary[-1] == '1':
-                outputLine += 'Temperature sensor is malfunctioning'
-                self.state['critical'] += 1
-            if binary[-6] == '1':
-                outputLine += 'Temperature sensor is not activated'
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Temperature sensor is not activated')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Temperature sensor is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
+        
+        return None
+    
+    def __checkUPS(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the UPS status. Expects a string for
+        the deviceDescription, an integer for the status and an integer for
+        the sensorValue.
+        '''
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Unit is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-2] == '1':
+                    outputLine.append('AC Power not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+               
+            try: 
+                numeral = binary[-4:-2]
+                    
+            except IndexError:
+                pass
+            
+            numeral = int('0b' + numeral, 2)
+            
+            if numeral == 1:
+                outputLine.append('Battery not fully charged')
                 self.state['warning'] += 1
-            if binary[-7] == '1':
-                outputLine += 'Temperature sensor is not present'
+            elif numeral == 2:
+                outputLine.append('Battery charge critically low') 
                 self.state['critical'] += 1
-            self.output.append(outputLine)           
+            elif numeral == 3:
+                outputLine.append('Battery completely drained')
+                self.state['critical'] += 1
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('UPS is off')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('UPS is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
         
         return None
     
-    def __checkUPS(self, deviceDescription, value, status):
+    def __checkVoltageSensor(self, deviceDescription, status, sensorValue):
+        '''
+        For internal use, checks the voltage sensor. Expects a string for
+        the deviceDescription, an integer for the status and an integer for
+        the sensorValue.
+        '''
         
-        return None
-    
-    def __checkVoltageSensor(self, deviceDescription, value, status):
+        # If status is 0 everything is copasetic
+        if status != 0:
+            outputLine = []
+            
+            outputLine.append(deviceDescription + ':') #Begin our output line
+                
+            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            
+            if self.verbose > 1:
+                print ('Debug2: Device: {0}, Value:{1}, Status code:{2}'
+                       'binary:{3}').format(deviceDescription, sensorValue, 
+                                            status, binary)
+            
+            try:   
+                if binary[-1] == '1':
+                    outputLine.append('Voltage sensor is malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            try: 
+                numeral = binary[-4:-1] 
+                
+            except IndexError:
+                pass
+            
+            numeral = int('0b' + numeral, 2)
+            
+            if numeral == 2:
+                outputLine.append('Low voltage warning')
+                self.state['warning'] += 1
+            elif numeral == 3:
+                outputLine.append('High voltage warning') 
+                self.state['warning'] += 1
+            elif numeral == 4:
+                outputLine.append('Low voltage limit exceeded')
+                self.state['critical'] += 1
+            elif numeral == 5:
+                outputLine.append('High voltage limit exceeded')
+                self.state['critical'] += 1
+                
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('Voltage sensor is not activated')
+                    self.state['warning'] += 1
+            except IndexError:
+                pass
+            
+            try:
+                if binary[-8] == '1':
+                    outputLine.append('Voltage sensor is not present')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+            
+            self.output.append(' '.join(outputLine))           
         
         return None
         
@@ -423,7 +927,7 @@ class CheckInfortrend(Snmp):
                           4:(self.__checkUPS), 
                           5:(self.__checkVoltageSensor), 
                           6:(self.__checkCurrentSensor),
-                          8:(self.__checkTempFlags),
+                          8:(self.__checkTempSensor),
                           9:(self.__checkDoor),
                           10:(self.__checkSpeaker), 
                           11:(self.__checkBattery),
@@ -447,8 +951,6 @@ class CheckInfortrend(Snmp):
         check, deviceType = self.__query(luDevType)
         check, deviceValue = self.__query(luDevValue)
         check, deviceStatus = self.__query(luDevStatus)
-        
-        #print (luDevTypeCodes[3](deviceDescription[0],deviceStatus[0], deviceValue[0]))
                                
         for number, device in enumerate(deviceType):
             luDevTypeCodes[device](deviceDescription[number], 
@@ -517,7 +1019,7 @@ class CheckInfortrend(Snmp):
         This method expects no arguments.
         '''
         
-        privateLogoVendor = ('Vendor:',self.baseoid + '1.1.1.14.0', 'snmpget')
+        privateLogoVendor = ('Vendor:', self.baseoid + '1.1.1.14.0', 'snmpget')
         privateLogoString = ('Model:', self.baseoid + '1.1.1.13.0', 'snmpget')
         serialNum = ('Serial Number:', self.baseoid + '1.1.1.10.0', 'snmpget')
         fwMajorVersion = ('Firmware Major Version:', 
@@ -543,8 +1045,8 @@ class CheckInfortrend(Snmp):
         self.output.append('Firmware Version:{0}.{1}'.format(firmwareMajor, 
                                                              firmwareMinor))
         
-        if __debug__:
-            print 'Debug: Output from checkModelFirmware:', self.output
+        if self.verbose > 1:
+            print 'Debug2: Output from checkModelFirmware:', self.output
         
         return None
     
@@ -555,8 +1057,8 @@ class CheckInfortrend(Snmp):
         
         finalOutput = '{status}:{output}'
         
-        if __debug__:
-            print ('Debug: Results passed to parsePrint: '
+        if self.verbose > 1:
+            print ('Debug2: Results passed to parsePrint: '
                    '{0} {1}').format(self.state, self.output)
             
         
@@ -644,22 +1146,22 @@ if __name__ == '__main__':
     
     (options, args) = parser.parse_args()
     
-    if __debug__:
-        print 'Options taken in:', options
-        print 'Arguments taken in:', args
+    if options.verbose > 1:
+        print 'Debug2: Options taken in:', options
+        print 'Debug2: Arguments taken in:', args
         
     signal.signal(signal.SIGALRM, sigalarm_handler)
     
     signal.alarm(options.timeout)
     
     #Instantiate our object
-    c = CheckInfortrend(community = options.community, 
+    CHECK = CheckInfortrend(community = options.community, 
                         destHost = options.hostname, 
                         verbose = options.verbose)
     
     
     #This runs all of the checks
-    c.check()
+    CHECK.checkAll()
     
     signal.alarm(0)
 
