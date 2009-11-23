@@ -1,15 +1,14 @@
-#!/usr/bin/python -O
-#Remove -O to get debugging output
+#!/usr/bin/env python
 
 '''
 Nagios plugin to perform SNMP queries against Infortrend based RAIDs, this
 includes Sun StorEdge 3510 and 3511 models. Parses the results and gives
 an overall view of the health of the RAID.
 
-Version: 1.5                                                                
+Version: 1.7                                                                
 Created: 2009-10-30                                                      
 Author: Erinn Looney-Triggs
-Revised: 2009-11-12
+Revised: 2009-11-23
 Revised by: Erinn Looney-Triggs
 
 
@@ -33,8 +32,7 @@ License:
 '''
 
 #TODO:
-# If failed drive pull serial number
-# cache check
+# doctests
 
 import os
 import subprocess
@@ -45,7 +43,7 @@ __credits__ = ['Erinn Looney-Triggs', ]
 __license__ = 'AGPL 3.0'
 __maintainer__ = 'Erinn Looney-Triggs'
 __email__ = 'erinn.looneytriggs@gmail.com'
-__version__ = 1.5
+__version__ = 1.7
 __status__ = 'Development'
 
 # Nagios exit codes in English
@@ -56,19 +54,19 @@ OK       = 0
 
 class Snmp(object):
     '''
-    A Basic Class For an SNMP Session
+    A Basic Class for an SNMP session
     '''
     def __init__(self, version='2c', destHost='localhost', community='public',
                 verbose=0):
 
         self.community = community
-        self.destHost = destHost
+        self.destHost = destHost 
         self.verbose = verbose
         self.version = version
 
     def query(self, snmpCmd, oid):
         '''
-        Creates SNMP query session. 
+        Creates an SNMP query session. 
         
         snmpcmd is a required string that can either be 'snmpget' 
         or 'snmpwalk'.
@@ -86,57 +84,62 @@ class Snmp(object):
         cmdLine = ('{snmpCmd} -v {version} -O v -c {community} '
                    '{destHost} {oid}')
         
-        cmdLine = cmdLine.format(snmpCmd = snmpCmd, version = self.version, 
+        cmdLine = cmdLine.format(snmpCmd = snmpCmd, version = self.version,  
                                  community = self.community, 
-                                 destHost= self.destHost, oid = oid)
+                                 destHost= self.destHost, 
+                                 oid = oid,)
         
         if self.verbose > 1:
-            print 'Performing SNMP query:', cmdLine
+            print 'Debug2: Performing SNMP query:', cmdLine
         
         try:
             p = subprocess.Popen(cmdLine, shell=True, 
                                  stdout = subprocess.PIPE, 
                                  stderr = subprocess.STDOUT)
         except OSError:
-            print 'Error:', sys.exc_value, 'exiting!'
+            print 'Error:', sys.exc_info, 'exiting!'
             sys.exit(WARNING) 
         
-        #This is where we sanitize the output gathered.
+        # This is where we sanitize the output gathered.
          
         output = p.stdout.read().strip()
         
         if self.verbose > 1:
             print 'Debug2: Raw output obtained from query:', output
         
-        #TODO: Cleanup
-        if output.find(':') == -1:  #To catch SNMP errors and output them
-            finalOutput = output
-        else:    
-            if snmpCmd == 'snmpwalk':
-                finalOutput = []
-                for item in output.split('\n'):
-                    style, value = item.split(':')
-                    if style == 'INTEGER':
-                        finalOutput.append(int(value))
-                    elif style == 'STRING':
-                        # Strip whitespace, quotes, then whitespace again
-                        finalOutput.append(value.strip().strip('"').strip())
-                    else:
-                        # We treat any unknowns as strings
-                        finalOutput.append(value)
+        return self._parseSnmpOutput(snmpCmd, output)
+       
+    def _parseSnmpOutput(self, snmpCmd, output):
+        '''
+        Parse the SNMP output and return values as integers or strings.
+        Returns a list of items for walk and a single item for gets. 
+        '''
+        finalOutput = []       
             
-            elif snmpCmd == 'snmpget':
-                style, value = output.split(':')
-                if style == 'INTEGER':
-                    finalOutput = int(value)
-                elif style == 'STRING':
-                    # Strip whitespace, quotes, then whitespace again
-                    finalOutput = value.strip().strip('"').strip()           
-                else:
-                    # We treat any unknowns as strings
-                    finalOutput.append(value)
-                    
+        for item in output.split('\n'):
+            try:
+                style, value = item.split(':')
+            except ValueError:
+                # If exception occurs this is probably a warning message
+                # pass through.
+                style = None
+                value = item
+            
+            if style == 'INTEGER':
+                finalOutput.append(int(value))
+            elif style == 'STRING':
+                # Strip whitespace, quotes, then whitespace again
+                finalOutput.append(value.strip().strip('"').strip())
+            else:
+                # We treat any unknowns as strings
+                finalOutput.append(value)
         
+        if snmpCmd == 'snmpget':
+            finalOutput = finalOutput[0]
+        
+        if self.verbose > 1:
+            print 'Debug2: Final output after cleaning:{0}'.format(finalOutput)
+            
         return finalOutput
     
     def __which(self, program):
@@ -145,11 +148,12 @@ class Snmp(object):
         '''
         
         def is_exe(file_path):
-            '''Tests that a file exists and is executable.
+            '''
+            Tests that a file exists and is executable.
             '''
             return os.path.exists(file_path) and os.access(file_path, os.X_OK)
         
-        file_path, fname = os.path.split(program)
+        file_path = os.path.split(program)[0]
         
         if file_path:
             if is_exe(program):
@@ -179,7 +183,7 @@ class CheckInfortrend(Snmp):
     def __init__(self, community='public', destHost='localhost', 
                  verbose=0, version='2c'):
         
-        #Base OID found during auto detect
+        # Base OID found during auto detect
         self.baseoid = ''
         
         # Holder for state counts
@@ -203,9 +207,9 @@ class CheckInfortrend(Snmp):
         This method expects no arguments.
         '''
         
-        #Infortrend's base oid: 1.3.6.1.4.1.1714.
-        #Sun's base oid for 3510: 1.3.6.1.4.1.42.2.180.3510.1.
-        #Sun's base oid for 3511: 1.3.6.1.4.1.42.2.180.3511.1.
+        # Infortrend's base oid: 1.3.6.1.4.1.1714.
+        # Sun's base oid for 3510: 1.3.6.1.4.1.42.2.180.3510.1.
+        # Sun's base oid for 3511: 1.3.6.1.4.1.42.2.180.3511.1.
         
         baseoids = ['1.3.6.1.4.1.1714.', '1.3.6.1.4.1.42.2.180.3510.1.', 
                     '1.3.6.1.4.1.42.2.180.3510.1.',]
@@ -223,7 +227,7 @@ class CheckInfortrend(Snmp):
             sys.exit(CRITICAL)
         
         if self.verbose > 1:
-            print 'Base OID set to:', self.baseoid
+            print 'Debug 2: Base OID set to:', self.baseoid
         
         return None
        
@@ -239,7 +243,7 @@ class CheckInfortrend(Snmp):
         self.checkModelFirmware()
         self.checkDriveStatus()
         self.checkDeviceStatus()
-        self.parsePrint()
+        self.parsePrintExit()
         
         return None
     
@@ -250,13 +254,13 @@ class CheckInfortrend(Snmp):
         the sensorValue.
         '''
         
-        # If status is 0 everything is copasetic
+        # If status is 0 everything is copacetic
         if status != 0:
             outputLine = []
             
-            outputLine.append(deviceDescription + ':') #Begin our output line
+            outputLine.append(deviceDescription + ':') # Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -278,15 +282,14 @@ class CheckInfortrend(Snmp):
                 pass
             
             try: 
-                numeral = binary[-4:-2] 
-                numeral = int('0b' + numeral, 2)
+                numeral = self._convertBinarytoInteger(binary[-4:-2])
             
                 if numeral == 1:
                     outputLine.append('Battery not fully charged')
                     self.state['warning'] += 1
                 elif numeral == 2:
                     outputLine.append('Battery charge critically low') 
-                    self.state['warning'] += 1
+                    self.state['critical'] += 1
                 elif numeral == 3:
                     outputLine.append('Battery completely drained')
                     self.state['critical'] += 1
@@ -296,6 +299,7 @@ class CheckInfortrend(Snmp):
                 
             try:
                 if binary[-7] == '1':
+                    # This is a normal state on cheaper RAIDs thus no warning 
                     outputLine.append('Battery-backup is disabled')
             except IndexError:
                 pass
@@ -311,39 +315,6 @@ class CheckInfortrend(Snmp):
         
         return None
     
-    def checkCache(self):
-        '''
-         "Caching mode flags
-              BIT 0 : Write Back Status (RW)
-                              0: Disabled, 1: Enabled.
-              BIT 1 : Read Ahead Disable (RW)
-                              0: Enabled, 1: Disabled.
-              BIT 2 : Enable/Disable keeping LD/LV
-                              off-line after controller initialization
-                              if cached write data was lost (RW)
-                              0: Disabled, 1: Enabled.
-              BIT 3 -- BIT 7 : Reserved (Set to 0).
-              BIT 8 : Cache Optimization Option (RW)
-                              0: Small/Random I/Os, 1: Large/Sequential I/Os
-              BIT 9 -- BIT 15 : Reserved (Set to 0).
-              BIT 16 -- BIT 18 : Periodic Cache Sync Period (RW)
-                              For interpretation of values, reference
-                              'Periodic Cache Sync Period Value
-              BIT 19 -- BIT 21 : Cache Flush Initiation
-                              Threshold (RW)
-                              For interpretation of values, reference
-                              'Cache Flush Initiation Threshold Valid
-                              Cross-Reference List'.
-              BIT 22 -- BIT 25 : Cache Flush Termination
-                              Threshold (RW)
-                              For interpretation of values, reference
-                              'Cache Flush Termination Threshold Valid
-                              Cross-Reference List'.
-              BIT 26 -- BIT 31 : Reserved (Set to 0)."
-        '''
-        #.1.1.2.1.0
-        pass
-    
     def __checkCurrentSensor(self, deviceDescription, status, sensorValue):
         '''
         For internal use, checks the current sensor status. Expects a 
@@ -354,9 +325,9 @@ class CheckInfortrend(Snmp):
         if status != 0:
             outputLine = []
             
-            outputLine.append(deviceDescription + ':') #Begin our output line
+            outputLine.append(deviceDescription + ':') # Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -371,19 +342,16 @@ class CheckInfortrend(Snmp):
                 pass
                
             try: 
-                numeral = binary[-4:-1]
-                    
+                numeral = self._convertBinarytoInteger(binary[-4:-1])
+            
+                if numeral == 3:
+                    outputLine.append('Over current warning')
+                    self.state['warning'] += 1
+                elif numeral == 5:
+                    outputLine.append('Over current limit exceeded')
+                    self.state['critical'] += 1
             except IndexError:
                 pass
-            
-            numeral = int('0b' + numeral, 2)
-            
-            if numeral == 3:
-                outputLine.append('Over current warning')
-                self.state['warning'] += 1
-            elif numeral == 5:
-                outputLine.append('Over current limit exceeded')
-                self.state['critical'] += 1
                 
             try:
                 if binary[-7] == '1':
@@ -413,9 +381,9 @@ class CheckInfortrend(Snmp):
         if status != 0:
             outputLine = []
             
-            outputLine.append(deviceDescription + ':') #Begin our output line
+            outputLine.append(deviceDescription + ':') # Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -460,22 +428,52 @@ class CheckInfortrend(Snmp):
         For internal use, checks the fan status. Expects a string 
         for the deviceDescription, an integer for the status and an 
         integer for the sensorValue.
+        
+        Conversions for fan speed:
+        12292 < 4000 rpm
+        77828 = 4000 - 4285 rpm
+        143364 = 4286 - 4570 rpm
+        208900 = 4571 - 4856 rpm
+        274436 = 4857 - 5142 rpm
+        339972 = 5143 - 5428 rpm
+        405508 = 5429 - 5713 rpm
+        471044 > 5713 rpm
+        
+        Unfortunately, because we are not receiving the actual fan speed
+        warning and critical thresholds can't be used. In order to graph
+        this data I chose the top value for each choice, this is not as 
+        detailed as I would like but it should give you an idea.
         '''
-#        warnRPM = '14000'
-#        critRPM = '15000'
-#        minRPM = '0'
-#        maxRPM = '15000'
-#        
-#        self.perfData.append("'{0}'={1};{2};{3};{4};{5}"
-#                             .format(deviceDescription, sensorValue, warnRPM,
-#                                     critRPM, minRPM, maxRPM))
+        
+        fanSpeeds = {12292:4000,
+                     77828:4285,
+                     143364:4570,
+                     208900:4571,
+                     274436:4857,
+                     339972:5428,
+                     405508:5713,
+                     471044:5800,
+                     }
+        
+        warnRPM = '6000'
+        critRPM = '7000'
+        minRPM = '0'
+        maxRPM = '8000'
+        
+        if self.verbose > 1:
+            print 'Debug2: Fan speed is:{0} rpm.'.format(fanSpeeds[sensorValue])
+        
+        self.perfData.append("'{0}'={1};{2};{3};{4};{5}"
+                             .format(deviceDescription, 
+                                     fanSpeeds[sensorValue], warnRPM,
+                                     critRPM, minRPM, maxRPM))
         
         if status != 0:
             outputLine = []
             
             outputLine.append(deviceDescription + ':') #Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary =self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -507,22 +505,26 @@ class CheckInfortrend(Snmp):
         
         return None
     
-    def __checkHddSerialNumber(self, hdd):
+    def __checkHddModelSerialNumber(self, hdd):
         '''
-        For internal use, grabs the serial number for the drive number 
-        that is passed in and appends it to the nagios output. This is
-        designed to be used when a failed drive is detected, a serial
-        number is grabbed for convenience. It can however, be used for
-        other purposes. Takes on argument hdd which is an int of the 
-        drive you wish to check.
+        For internal use, grabs the model and serial number for the d
+        rive number that is passed in and appends it to the nagios output. 
+        This is designed to be used when a failed drive is detected, 
+        the model and serial number is grabbed for convenience. 
+        It can however, be used for other purposes. Takes one argument hdd 
+        which is an int of the drive you wish to check.
         '''
+        hddModel = ('Hard Drive Model:', 
+                    self.baseoid + '1.6.1.15.' + str(hdd), 'snmpget')
         hddSerialNum = ('Hard Drive Serial Number:', 
                         self.baseoid + '1.6.1.17.' + str(hdd),
                         'snmpget')
         
+        model = self.__query(hddModel)[1]
+        self.output.append('model:{0}'.format(model))
         serialNumber = self.__query(hddSerialNum)[1]
-        
         self.output.append('serial number:{0}'.format(serialNumber))
+        
         
         return None
     
@@ -533,7 +535,7 @@ class CheckInfortrend(Snmp):
         list of one or more return values from hddStatus OID.
         '''
         
-        # For completeness here are the other codes that we accept as being
+        # For completeness here are the codes that we accept as being
         # good.
         # 1 : On-Line Drive
         # 2 : Used Drive
@@ -561,16 +563,14 @@ class CheckInfortrend(Snmp):
             if self.verbose > 1:
                 print 'Debug2: checking drive:', drive, 'with status:', status
             
-            status = 255
-            
             if status in criticalCodes:
                 self.state['critical'] += 1
                 self.output.append('Drive ' + str(drive + 1) + ': ' 
                                 + criticalCodes[status])
                 
-                #Grab the serial if the drive has failed, for lazy admins
+                # Grab the serial if the drive has failed, for lazy admins
                 if status == 255:
-                    self.__checkHddSerialNumber(drive)
+                    self.__checkHddModelSerialNumber(drive)
                 
             elif status in warningCodes:
                 self.state['warning'] += 1
@@ -620,12 +620,13 @@ class CheckInfortrend(Snmp):
         for the deviceDescription, an integer for the status and an 
         integer for the sensorValue.
         '''
+        
         if status != 0:
             outputLine = []
             
             outputLine.append(deviceDescription + ':') #Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -667,9 +668,9 @@ class CheckInfortrend(Snmp):
         if status != 0:
             outputLine = []
             
-            outputLine.append(deviceDescription + ':') #Begin our output line
+            outputLine.append(deviceDescription + ':') # Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -711,9 +712,9 @@ class CheckInfortrend(Snmp):
         if status != 0:
             outputLine = []
             
-            outputLine.append(deviceDescription + ':') #Begin our output line
+            outputLine.append(deviceDescription + ':') # Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -770,8 +771,8 @@ class CheckInfortrend(Snmp):
         # Temperature is in Celcius
         temperature = (sensorValue / 2 ** 17 )  - 274
         
-        warnTemp = '60'
-        critTemp = '70'
+        warnTemp = '70'
+        critTemp = '80'
         minTemp = '0'
         maxTemp = '100'
         
@@ -779,13 +780,13 @@ class CheckInfortrend(Snmp):
                              .format(deviceDescription, temperature, warnTemp,
                                      critTemp, minTemp, maxTemp))
         
-        # If status is 0 everything is copasetic
+        # If status is 0 everything is copacetic
         if status != 0:
             outputLine = []
             
             outputLine.append(deviceDescription + ':') #Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -800,8 +801,7 @@ class CheckInfortrend(Snmp):
                 pass
             
             try: 
-                numeral = binary[-4:-1] 
-                numeral = int('0b' + numeral, 2)
+                numeral = self._convertBinarytoInteger(binary[-4:-1]) 
             
                 if numeral == 2:
                     outputLine.append('Cold temperature warning')
@@ -848,7 +848,7 @@ class CheckInfortrend(Snmp):
             
             outputLine.append(deviceDescription + ':') #Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2} '
@@ -870,22 +870,20 @@ class CheckInfortrend(Snmp):
                 pass
                
             try: 
-                numeral = binary[-4:-2]
-                    
+                numeral = self._convertBinarytoInteger(binary[-4:-2])
+                
+                if numeral == 1:
+                    outputLine.append('Battery not fully charged')
+                    self.state['warning'] += 1
+                elif numeral == 2:
+                    outputLine.append('Battery charge critically low') 
+                    self.state['critical'] += 1
+                elif numeral == 3:
+                    outputLine.append('Battery completely drained')
+                    self.state['critical'] += 1
+                   
             except IndexError:
-                pass
-            
-            numeral = int('0b' + numeral, 2)
-            
-            if numeral == 1:
-                outputLine.append('Battery not fully charged')
-                self.state['warning'] += 1
-            elif numeral == 2:
-                outputLine.append('Battery charge critically low') 
-                self.state['critical'] += 1
-            elif numeral == 3:
-                outputLine.append('Battery completely drained')
-                self.state['critical'] += 1
+                pass          
                 
             try:
                 if binary[-7] == '1':
@@ -911,14 +909,12 @@ class CheckInfortrend(Snmp):
         the deviceDescription, an integer for the status and an integer for
         the sensorValue.
         '''
-        
-        # If status is 0 everything is copasetic
         if status != 0:
             outputLine = []
             
-            outputLine.append(deviceDescription + ':') #Begin our output line
+            outputLine.append(deviceDescription + ':') # Begin our output line
                 
-            binary = bin(status)[2:]    #Convert to binary and slice off 0b
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device: {0}, Value:{1}, Status code:{2}'
@@ -933,25 +929,24 @@ class CheckInfortrend(Snmp):
                 pass
             
             try: 
-                numeral = binary[-4:-1] 
-                
+                numeral = self._convertBinarytoInteger(binary[-4:-1])
+            
+                if numeral == 2:
+                    outputLine.append('Low voltage warning')
+                    self.state['warning'] += 1
+                elif numeral == 3:
+                    outputLine.append('High voltage warning') 
+                    self.state['warning'] += 1
+                elif numeral == 4:
+                    outputLine.append('Low voltage limit exceeded')
+                    self.state['critical'] += 1
+                elif numeral == 5:
+                    outputLine.append('High voltage limit exceeded')
+                    self.state['critical'] += 1
             except IndexError:
                 pass
             
-            numeral = int('0b' + numeral, 2)
-            
-            if numeral == 2:
-                outputLine.append('Low voltage warning')
-                self.state['warning'] += 1
-            elif numeral == 3:
-                outputLine.append('High voltage warning') 
-                self.state['warning'] += 1
-            elif numeral == 4:
-                outputLine.append('Low voltage limit exceeded')
-                self.state['critical'] += 1
-            elif numeral == 5:
-                outputLine.append('High voltage limit exceeded')
-                self.state['critical'] += 1
+
                 
             try:
                 if binary[-7] == '1':
@@ -993,16 +988,16 @@ class CheckInfortrend(Snmp):
                           17:(self.__checkSlotStates),
                           }
         
-        #Description as a string
+        # Description as a string
         luDevDescription = ('Logical unit device description:',
                             self.baseoid + '1.9.1.8', 'snmpwalk')
-        #Type of device by code
+        # Type of device by code
         luDevType = ('Logical unit device type:',
                      self.baseoid + '1.9.1.6', 'snmpwalk')
-        #Values of temps etc.
+        # Values of temps etc.
         luDevValue = ('Logical unit device value:', 
                       self.baseoid + '1.9.1.9', 'snmpwalk')
-        #Status of devices
+        # Status of devices
         luDevStatus = ('Logical unit device status:', 
                        self.baseoid + '1.9.1.13', 'snmpwalk')
         
@@ -1061,7 +1056,7 @@ class CheckInfortrend(Snmp):
         check, logicalDriveStatus = self.__query(ldStatus)
         self.__checkLdStatus(logicalDriveStatus)
         
-        #Get the status of the hard drives
+        # Get the status of the hard drives
         check, driveStatus =  self.__query(hddStatus)
         self.__checkHddStatus(driveStatus)
         
@@ -1109,9 +1104,25 @@ class CheckInfortrend(Snmp):
         
         return None
     
-    def parsePrint(self):
+    def _convertBinarytoInteger(self, binary):
         '''
-        Parse the results
+        Convert the given binary string to an integer. Appends 0b to the
+        string before conversion.
+        '''
+        
+        return int('0b' + binary, 2)
+        
+    def _convertIntegerToBinaryAndFormat(self, number):
+        '''
+        Convert the given integer to a number and removes the leading 0b
+        and returns.
+        '''
+        return bin(number)[2:]
+    
+    def parsePrintExit(self):
+        '''
+        Parse the results, print the output and exit with the appropriate
+        status.
         '''
         
         finalOutput = '{status}:{output}'
@@ -1119,9 +1130,7 @@ class CheckInfortrend(Snmp):
         if self.verbose > 1:
             print ('Debug2: Results passed to parsePrint: '
                    '{0} {1}').format(self.state, self.output)
-            
         
-        #TODO: cleanup
         if self.state['critical']:
             status = 'CRITICAL'
         elif self.state['warning']:
@@ -1142,20 +1151,13 @@ class CheckInfortrend(Snmp):
             for line in self.perfData:
                 finalLine += line + ' '
         
-        #Construct and print our final output
+        # Construct and print our final output
         finalOutput = finalOutput.format(status = status, output = finalLine)
         print finalOutput
         
-        if self.state['critical']:
-            sys.exit(CRITICAL)
-        elif self.state['warning']:
-            sys.exit(WARNING)
-        elif self.state['unknown']:
-            sys.exit(UNKNOWN)
-        else:
-            sys.exit(OK)
+        sys.exit(eval(status))
         
-        return None #Should never be reached
+        return None # Should never be reached
     
     def __query(self, items):
         '''
@@ -1170,15 +1172,19 @@ class CheckInfortrend(Snmp):
         result = self.query(snmpCmd, oid)
         
         if self.verbose > 1:
-            print check, result
+            print 'Debug2:', check, result
         
         return check, result
 
 def sigalarm_handler(signum, frame):
-    '''Handler for an alarm situation.'''
+    '''
+    Handler for an alarm situation.
+    '''
     
     print '{0} timed out after {1} seconds'.format(sys.argv[0], 
                                                    options.timeout)
+    print 'Debug: Exited with signum: {0}, frame: {1}'.format(signum, frame)
+    
     sys.exit(CRITICAL)
     
 if __name__ == '__main__':
@@ -1188,7 +1194,7 @@ if __name__ == '__main__':
     parser = optparse.OptionParser(description='''Nagios plug-in to monitor
     Infortrend based RAIDs, this includes some Sun StorEdge RAIDs such 
     as the 3510 and the 3511.''', prog="check_infortrend", 
-    version="%prog Version: 1.5")
+    version="%prog Version: 1.7")
     
     parser.add_option('-c', '--community', action='store', 
                       dest='community', type='string',default='public', 
