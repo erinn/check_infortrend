@@ -618,8 +618,8 @@ class CheckInfortrend(Snmp):
                                 + criticalCodes[status])
                 
                 # Grab the serial if the drive has failed, for lazy admins
-                if status == 255:
-                    self._check_hdd_model_serial_number(drive)
+                if status == 255 or status == 63:
+                    self._check_hdd_model_serial_number(drive + 1)
                 
             elif status in warningCodes:
                 self.state['warning'] += 1
