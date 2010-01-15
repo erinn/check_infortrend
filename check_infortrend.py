@@ -13,8 +13,8 @@ Revised by: Erinn Looney-Triggs
 
 
 License:
-    check_infortrend, performs SNMP queries again Infortrend based RAIDS
-    Copyright (C) 2009  Erinn Looney-Triggs
+    check_infortrend, performs SNMP queries against Infortrend based RAIDS
+    Copyright (C) 2010  Erinn Looney-Triggs
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as
@@ -257,7 +257,7 @@ class CheckInfortrend(Snmp):
         # Sun's base oid for 3510: 1.3.6.1.4.1.42.2.180.3510.1.
         # Sun's base oid for 3511: 1.3.6.1.4.1.42.2.180.3511.1.
         
-        baseoids = ['1.3.6.1.4.1.1714.', '1.3.6.1.4.1.1714.1',
+        baseoids = ['1.3.6.1.4.1.1714.', '1.3.6.1.4.1.1714.1.',
                     '1.3.6.1.4.1.42.2.180.3510.1.', 
                     '1.3.6.1.4.1.42.2.180.3510.1.',]
         
@@ -324,7 +324,6 @@ class CheckInfortrend(Snmp):
             try:
                 if binary[-2] == '1':
                     outputLine.append('Battery charging on')
-                    self.state['warning'] += 1
             except IndexError:
                 pass
             
@@ -333,7 +332,6 @@ class CheckInfortrend(Snmp):
             
                 if numeral == 1:
                     outputLine.append('Battery not fully charged')
-                    self.state['warning'] += 1
                 elif numeral == 2:
                     outputLine.append('Battery charge critically low') 
                     self.state['critical'] += 1
@@ -492,7 +490,11 @@ class CheckInfortrend(Snmp):
         detailed as I would like but it should give you an idea.
         '''
         
-        fanSpeeds = {12292:4000,
+        #Infortrend decided to do mappings from certain numbers to fan speeds
+        #Why they couldn't just output the speed is beyond me, but I don't do
+        #hardware design so maybe there is a good reason. 
+        fanSpeeds = {0:0,           #Indicates fan speed is not available.
+                     12292:4000,
                      77828:4285,
                      143364:4570,
                      208900:4571,
@@ -512,8 +514,8 @@ class CheckInfortrend(Snmp):
         
         self.perfData.append("'%s'=%s;%s;%s;%s;%s"
                              % (deviceDescription, 
-                                     fanSpeeds[sensorValue], warnRPM,
-                                     critRPM, minRPM, maxRPM))
+                                fanSpeeds[sensorValue], warnRPM,
+                                critRPM, minRPM, maxRPM))
         
         if status != 0:
             outputLine = []
@@ -1024,7 +1026,7 @@ class CheckInfortrend(Snmp):
         
         luDevTypeCodes = {1:(self._check_power_supply), 
                           2:(self._check_fan), 
-                          3: self._check_temp_sensor,
+                          3:(self._check_temp_sensor),
                           4:(self._check_ups), 
                           5:(self._check_voltage_sensor), 
                           6:(self._check_current_sensor),
@@ -1055,7 +1057,8 @@ class CheckInfortrend(Snmp):
                                
         for number, device in enumerate(deviceType):
             luDevTypeCodes[device](deviceDescription[number], 
-                                   deviceStatus[number], deviceValue[number])
+                                   deviceStatus[number], 
+                                   deviceValue[number])
         return None
         
     def check_drive_status(self):
