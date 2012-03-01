@@ -5,16 +5,17 @@ Nagios plugin to perform SNMP queries against Infortrend based RAIDs, this
 includes Sun StorEdge 3510 and 3511 models. Parses the results and gives
 an overall view of the health of the RAID.
 
-Version: 1.8                                                                
+Version: 2.0                                                                
 Created: 2009-10-30                                                      
 Author: Erinn Looney-Triggs
-Revised: 2010-01-05
-Revised by: Erinn Looney-Triggs
+Revised: 2012-02-29
+Revised by: Erinn Looney-Triggs, Jake Engleman, Eric Schoeller,
+            Antoni Comerma Pare
 
 
 License:
     check_infortrend, performs SNMP queries against Infortrend based RAIDS
-    Copyright (C) 2010  Erinn Looney-Triggs
+    Copyright (C) 2012  Erinn Looney-Triggs
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as
@@ -43,8 +44,8 @@ __credits__ = ['Erinn Looney-Triggs', ]
 __license__ = 'AGPL 3.0'
 __maintainer__ = 'Erinn Looney-Triggs'
 __email__ = 'erinn.looneytriggs@gmail.com'
-__version__ = 1.8
-__status__ = 'Development'
+__version__ = 1.9
+__status__ = 'Production'
 
 # Nagios exit codes in English
 UNKNOWN  = 3
@@ -107,7 +108,7 @@ class Snmp(object):
         return self._parse_snmp_output(snmp_command, output)
        
     def _parse_snmp_output(self, snmp_command, output):
-        r'''
+        '''
         Parse the SNMP output and return values as integers or strings.
         Returns a list of items for walk and a single item for gets.
         
@@ -226,8 +227,10 @@ class CheckInfortrend(Snmp):
     supported
     '''
     
-    def __init__(self, community='public', agent='localhost', 
+    def __init__(self, blacklist, community='public', agent='localhost', 
                  verbose=0, version='2c'):
+        
+        self.blacklist = self._parse_blacklist(blacklist)
         
         # Base OID found during auto detect
         self.base_oid = ''
@@ -488,6 +491,12 @@ class CheckInfortrend(Snmp):
         warning and critical thresholds can't be used. In order to graph
         this data I chose the top value for each choice, this is not as 
         detailed as I would like but it should give you an idea.
+        
+        Other hardware returns other values, some hardware actually returns
+        the real speed of the fan (imagine the logic in that). We detect that
+        by looking for values < 10000 (a reasonable guess). Other hardware
+        returns a ludicrously large number, we detect that by chopping off
+        the higher values which ten results in a value that is in the map.
         '''
         
         #Infortrend decided to do mappings from certain numbers to fan speeds
@@ -509,12 +518,23 @@ class CheckInfortrend(Snmp):
         minRPM = '0'
         maxRPM = '8000'
         
+        #Sometimes the value is ludicrously large
+        if sensorValue > 0xffff:
+            sensorValue &= 0x0000ffff
+            fanSpeed = fanSpeeds[sensorValue]
+        #Sometimes it is the actual fan speed (imagine how easy!)
+        elif sensorValue < 10000:
+            fanSpeed = sensorValue
+        #And the rest of the time it is just the mapping
+        else:
+            fanSpeed = fanSpeeds[sensorValue]
+        
         if self.verbose > 1:
-            print 'Debug2: Fan speed is:%s rpm.'% (fanSpeeds[sensorValue])
+            print 'Debug2: Fan speed is:%s rpm.'% (fanSpeed)
         
         self.perfData.append("'%s'=%s;%s;%s;%s;%s"
                              % (deviceDescription, 
-                                fanSpeeds[sensorValue], warnRPM,
+                                fanSpeed, warnRPM,
                                 critRPM, minRPM, maxRPM))
         
         if status != 0:
@@ -522,7 +542,7 @@ class CheckInfortrend(Snmp):
             
             outputLine.append(deviceDescription + ':') #Begin our output line
                 
-            binary =self._convertIntegerToBinaryAndFormat(status)
+            binary = self._convertIntegerToBinaryAndFormat(status)
             
             if self.verbose > 1:
                 print ('Debug2: Device:%s, Value:%s, Status code:%s '
@@ -643,7 +663,7 @@ class CheckInfortrend(Snmp):
                          5:'Invalid', 
                          6:'Incomplete', 
                          7:'Drive Missing',
-                         64:'Logical Drive Off-line'
+                         128:'Logical Drive Off-line'
                          }
         
         for drive, status in enumerate(logicalDrives):
@@ -660,6 +680,15 @@ class CheckInfortrend(Snmp):
                 self.state['warning'] += 1
                 self.output.append('Logical Drive ' + str(drive + 1) + ': ' 
                                 + warningCodes[int(status)])      
+        
+        return None
+    
+    def _check_null(self, deviceDescription, status, sensorValue):
+        '''
+        This is the dumping ground for unknown hardware entries. This sadly
+        seems to come about because Infortrend is not documenting all modules
+        in their MIB files. Any entries pointed here will return nothing.
+        '''
         
         return None
     
@@ -892,7 +921,11 @@ class CheckInfortrend(Snmp):
         the deviceDescription, an integer for the status and an integer for
         the sensorValue.
         '''
-        if status != 0:
+        #When the status is 255, state is unknown and we ignore
+        if status == 255:
+            return None
+        
+        elif status != 0:
             outputLine = []
             
             outputLine.append(deviceDescription + ':') #Begin our output line
@@ -1034,6 +1067,9 @@ class CheckInfortrend(Snmp):
                           9:(self._check_door),
                           10:(self._check_speaker), 
                           11:(self._check_battery),
+                          12:(self._check_null),
+                          13:(self._check_null),
+                          15:(self._check_null),
                           17:(self._check_slot_states),
                           }
         
@@ -1054,7 +1090,11 @@ class CheckInfortrend(Snmp):
         deviceType = self._query(luDevType)[1]
         deviceValue = self._query(luDevValue)[1]
         deviceStatus = self._query(luDevStatus)[1]
-                               
+        
+        #If the UPS is blacklisted, we remove the device from the check
+        if self.blacklist.count('ups'):
+            deviceType.remove(4)
+        
         for number, device in enumerate(deviceType):
             luDevTypeCodes[device](deviceDescription[number], 
                                    deviceStatus[number], 
@@ -1172,6 +1212,18 @@ class CheckInfortrend(Snmp):
         '''
         return bin(number)[2:]
     
+    def _parse_blacklist(self, blacklist):
+        '''
+        Split the blacklist on '/' and return a list.
+        
+        This method expects one argument:
+        blacklist: a string.
+        '''
+        if blacklist:
+            return (blacklist.lower()).split('/')
+        else:
+            return []
+    
     def parse_print_exit(self):
         '''
         Parse the results, print the output and exit with the appropriate
@@ -1260,8 +1312,11 @@ if __name__ == '__main__':
     as the 3510 and the 3511.''', prog="check_infortrend", 
     version="%prog Version: 1.8")
     
+    parser.add_option('-b', '--blacklist', action='store', dest='blacklist',
+                      type='string', default=None,
+                      help=('Checks to blacklist. (Default: %default)'))
     parser.add_option('-c', '--community', action='store', 
-                      dest='community', type='string',default='public', 
+                      dest='community', type='string', default='public', 
                       help=('SNMP Community String to use. '
                       '(Default: %default)'))
     parser.add_option('-H', '--hostname', action='store', type='string', 
@@ -1285,9 +1340,10 @@ if __name__ == '__main__':
     signal.alarm(options.timeout)
     
     #Instantiate our object
-    CHECK = CheckInfortrend(community = options.community, 
-                        agent = options.hostname, 
-                        verbose = options.verbose)
+    CHECK = CheckInfortrend(blacklist=options.blacklist,
+                            community = options.community, 
+                            agent = options.hostname, 
+                            verbose = options.verbose )
     
     #This runs all of the checks
     CHECK.check_all()
