@@ -5,10 +5,10 @@ Nagios plugin to perform SNMP queries against Infortrend based RAIDs, this
 includes Sun StorEdge 3510 and 3511 models. Parses the results and gives
 an overall view of the health of the RAID.
 
-Version: 2.0                                                                
+Version: 2.1                                                                
 Created: 2009-10-30                                                      
 Author: Erinn Looney-Triggs
-Revised: 2012-02-29
+Revised: 2012-10-21
 Revised by: Erinn Looney-Triggs, Jake Engleman, Eric Schoeller,
             Antoni Comerma Pare
 
@@ -44,7 +44,7 @@ __credits__ = ['Erinn Looney-Triggs', ]
 __license__ = 'AGPL 3.0'
 __maintainer__ = 'Erinn Looney-Triggs'
 __email__ = 'erinn.looneytriggs@gmail.com'
-__version__ = 1.9
+__version__ = 2.1
 __status__ = 'Production'
 
 # Nagios exit codes in English
@@ -846,9 +846,13 @@ class CheckInfortrend(Snmp):
         the sensorValue.
         '''
         
-        # Temperature is in Celcius
-        temperature = (sensorValue / 2 ** 17 )  - 274
-        
+        #Some devices report a temperature of 0
+        if sensorValue == 0:
+            temperature = sensorValue
+        else:
+            # Temperature is in Celsius
+            temperature = (sensorValue / 2 ** 17 )  - 274
+            
         warnTemp = '70'
         critTemp = '80'
         minTemp = '0'
@@ -1310,7 +1314,7 @@ if __name__ == '__main__':
     parser = optparse.OptionParser(description='''Nagios plug-in to monitor
     Infortrend based RAIDs, this includes some Sun StorEdge RAIDs such 
     as the 3510 and the 3511.''', prog="check_infortrend", 
-    version="%prog Version: 1.8")
+    version="%prog Version: 2.1")
     
     parser.add_option('-b', '--blacklist', action='store', dest='blacklist',
                       type='string', default=None,
