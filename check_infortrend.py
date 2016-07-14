@@ -317,7 +317,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_battery(self, deviceDescription, status, sensorValue):
+    def _check_battery(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the battery status. Expects a string for
         the deviceDescription, an integer for the status and an integer for
@@ -383,7 +383,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_cache_data_backup_flash_device(self, deviceDescription, status, sensorValue):
+    def _check_cache_data_backup_flash_device(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         TODO
         '''
@@ -391,7 +391,7 @@ class CheckInfortrend(Snmp):
         return None
 
 
-    def _check_current_sensor(self, deviceDescription, status, sensorValue):
+    def _check_current_sensor(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the current sensor status. Expects a
         string for the deviceDescription, an integer for the status and
@@ -447,7 +447,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_door(self, deviceDescription, status, sensorValue):
+    def _check_door(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the current sensor status. Expects a
         string for the deviceDescription, an integer for the status and
@@ -499,26 +499,29 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_enclosure_drawer(self, deviceDescription, status, sensorValue):
+    def _check_enclosure_drawer(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         TODO
         '''
 
         return None
 
-    def _check_enclosure_management_services_controller(self, deviceDescription, status, sensorValue):
+    def _check_enclosure_management_services_controller(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         TODO
         '''
 
         return None
 
-    def _check_fan(self, deviceDescription, status, sensorValue):
+    def _check_fan(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the fan status. Expects a string
-        for the deviceDescription, an integer for the status and an
+        for the deviceDescription, an integer for the status an
         integer for the sensorValue.
 
+        Depending on the device model, we could get:
+        a) The real speed (rpm). Easy
+        b) A value that must be converted to rpm using the following table
         Conversions for fan speed:
         12292 < 4000 rpm
         77828 = 4000 - 4285 rpm
@@ -528,23 +531,27 @@ class CheckInfortrend(Snmp):
         339972 = 5143 - 5428 rpm
         405508 = 5429 - 5713 rpm
         471044 > 5713 rpm
-
-        Unfortunately, because we are not receiving the actual fan speed
-        warning and critical thresholds can't be used. In order to graph
-        this data I chose the top value for each choice, this is not as
-        detailed as I would like but it should give you an idea.
-
-        Other hardware returns other values, some hardware actually returns
-        the real speed of the fan (imagine the logic in that). We detect that
-        by looking for values < 10000 (a reasonable guess). Other hardware
-        returns a ludicrously large number, we detect that by chopping off
-        the higher values which ten results in a value that is in the map.
+        c) A "relative" speed
+            From IFT_MIB.txt
+             Fan (RPM):
+                if luDevValue>0 and luDevValueUnit>0, the readable value = luDevValue
+                else if luDevValueUnit == 0
+                    luDevValue = 0, means the FAN is in `Normal`
+                    luDevValue = 1, means the FAN is in `Lowest speed`
+                    luDevValue = 2, means the FAN is in `Second lowest speed`
+                    luDevValue = 3, means the FAN is in `Third lowest speed`
+                    luDevValue = 4, means the FAN is in `Intermediate speed`
+                    luDevValue = 5, means the FAN is in `Third highest speed`
+                    luDevValue = 6, means the FAN is in `Second highest speed`
+                    luDevValue = 7, means the FAN is in `Highest speed`
+            In this scenario, we translate this value to rpm using the table from
+            b). Not accurate, but serves to have homogeneus values.
         '''
 
         #Infortrend decided to do mappings from certain numbers to fan speeds
         #Why they couldn't just output the speed is beyond me, but I don't do
         #hardware design so maybe there is a good reason.
-        fanSpeeds = {0:0,           #Indicates fan speed is not available.
+        fanSpeedsOld = {0:0,           #Indicates fan speed is not available.
                      12292:4000,
                      77828:4285,
                      143364:4570,
@@ -554,22 +561,38 @@ class CheckInfortrend(Snmp):
                      405508:5713,
                      471044:5800,
                      }
-
-        warnRPM = '6000'
-        critRPM = '7000'
-        minRPM = '0'
-        maxRPM = '8000'
+        fanSpeedsNew = {1:4000,
+                     2:4285,
+                     3:4570,
+                     0:4571,
+                     4:4857,
+                     5:5428,
+                     6:5713,
+                     7:5800,
+                     }
+        # Printing fan speed
 
         #Sometimes the value is ludicrously large
         if sensorValue > 0xffff:
             sensorValue &= 0x0000ffff
-            fanSpeed = fanSpeeds[sensorValue]
-        #Sometimes it is the actual fan speed (imagine how easy!)
-        elif sensorValue < 10000:
+
+        # If value higher to max rpm, then user fanSpeedsOld table
+        if sensorValue > 10000:
+            fanSpeed = fanSpeedsOld[sensorValue]
+        elif sensorValueUnit == 0 or sensorValueUnit == -1:
+            # Speed according to fanSpeedsNew table
+            fanSpeed = fanSpeedsNew[sensorValue]
+        elif sensorValueUnit == 1:
+            # Speed should be in sensorValue
             fanSpeed = sensorValue
-        #And the rest of the time it is just the mapping
         else:
-            fanSpeed = fanSpeeds[sensorValue]
+            # Never should reach this code....
+            fanSpeed=0
+
+        warnRPM = '5713'
+        critRPM = '5800'
+        minRPM = '0'
+        maxRPM = '6000'
 
         if self.verbose > 0:
             print 'Debug1: Fan speed is:%s rpm.'% (fanSpeed)
@@ -579,10 +602,10 @@ class CheckInfortrend(Snmp):
                                 fanSpeed, warnRPM,
                                 critRPM, minRPM, maxRPM))
 
-        if status != 0:
-            outputLine = []
+        outputLine = []
+        outputLine.append(deviceDescription + ':') #Begin our output line
 
-            outputLine.append(deviceDescription + ':') #Begin our output line
+        if status != 0:
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
@@ -590,7 +613,6 @@ class CheckInfortrend(Snmp):
                 print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
-
             try:
                 if binary[-1] == '1':
                     outputLine.append('Fan is malfunctioning')
@@ -612,6 +634,16 @@ class CheckInfortrend(Snmp):
             except IndexError:
                 pass
 
+            self.output.append(' '.join(outputLine))
+
+        # If fan speed is high, raise a warning or critical
+        if fanSpeed >= critRPM:
+            outputLine.append('Fan speed is >= ' + str(critRPM))
+            self.state['critical'] += 1
+            self.output.append(' '.join(outputLine))
+        elif fanSpeed >= warnRPM:
+            outputLine.append('Fan speed is >= ' + str(warnRPM))
+            self.state['warning'] += 1
             self.output.append(' '.join(outputLine))
 
         return None
@@ -694,7 +726,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_host_board(self, deviceDescription, status, sensorValue):
+    def _check_host_board(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         TODO
         '''
@@ -736,21 +768,21 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_led(self, deviceDescription, status, sensorValue):
+    def _check_led(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         TODO
         '''
 
         return None
 
-    def _check_midplane_backplane(self, deviceDescription, status, sensorValue):
+    def _check_midplane_backplane(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         TODO
         '''
 
         return None
 
-    def _check_null(self, deviceDescription, status, sensorValue):
+    def _check_null(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         This is the dumping ground for unknown hardware entries. This sadly
         seems to come about because Infortrend is not documenting all modules
@@ -759,7 +791,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_power_supply(self, deviceDescription, status, sensorValue):
+    def _check_power_supply(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the Power supply status. Expects a string
         for the deviceDescription, an integer for the status and an
@@ -803,7 +835,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_speaker(self, deviceDescription, status, sensorValue):
+    def _check_speaker(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the speaker status. Expects a
         string for the deviceDescription, an integer for the status and
@@ -847,7 +879,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_slot_states(self, deviceDescription, status, sensorValue):
+    def _check_slot_states(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the slot status. Expects a
         string for the deviceDescription, an integer for the status and
@@ -905,20 +937,26 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_temp_sensor(self, deviceDescription, status, sensorValue):
+    def _check_temp_sensor(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the temperature sensor and returns the
         value as perfdata to be used by nagios. Expects a string for
         the deviceDescription, an integer for the status and an integer for
         the sensorValue.
+        According to MIB:
+            Temperature Sensor: the readable value = (luDevValue * luDevValueUnit / 1000) - 273
+        but... some old devices doesnt follow de rule. I've made a guess shifting the value 16 bits right.
         '''
+        #Sometimes the value is ludicrously large
+        if sensorValue > 0xffff:
+            sensorValue >>= 16
 
         #Some devices report a temperature of 0
         if sensorValue == 0:
             temperature = sensorValue
         else:
             # Temperature is in Celsius
-            temperature = (sensorValue - 274) / 10
+            temperature = (sensorValue * sensorValueUnit / 1000) - 273
 
         warnTemp = '70'
         critTemp = '80'
@@ -986,7 +1024,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_ups(self, deviceDescription, status, sensorValue):
+    def _check_ups(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the UPS status. Expects a string for
         the deviceDescription, an integer for the status and an integer for
@@ -1056,7 +1094,7 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_voltage_sensor(self, deviceDescription, status, sensorValue):
+    def _check_voltage_sensor(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
         For internal use, checks the voltage sensor. Expects a string for
         the deviceDescription, an integer for the status and an integer for
@@ -1156,6 +1194,9 @@ class CheckInfortrend(Snmp):
         # Values of temps etc.
         luDevValue = ('Logical unit device value:',
                       self.base_oid + '1.9.1.9', 'snmpwalk')
+        # Logical unit device value unit.
+        luDevValueUnit = ('Logical unit device value unit:',
+                      self.base_oid + '1.9.1.10', 'snmpwalk')
         # Status of devices
         luDevStatus = ('Logical unit device status:',
                        self.base_oid + '1.9.1.13', 'snmpwalk')
@@ -1163,13 +1204,15 @@ class CheckInfortrend(Snmp):
         deviceDescription = self._query(luDevDescription)[1]
         deviceType = self._query(luDevType)[1]
         deviceValue = self._query(luDevValue)[1]
+        deviceValueUnit = self._query(luDevValueUnit)[1]
         deviceStatus = self._query(luDevStatus)[1]
 
         for number, device in enumerate(deviceType):
             if  not self.blacklist.count(blacklistoptions[device]):
                 luDevTypeCodes[device](deviceDescription[number],
                                         deviceStatus[number],
-                                        deviceValue[number])
+                                        deviceValue[number],
+                                        deviceValueUnit[number])
             else:
                 if self.verbose > 0:
                     print 'Debug1: Device blacklisted ->', blacklistoptions[device]
