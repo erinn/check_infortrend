@@ -527,19 +527,6 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_enclosure_drawer(self, deviceDescription, status, sensorValue, sensorValueUnit):
-        '''
-        TODO
-        '''
-
-        return None
-
-    def _check_enclosure_management_services_controller(self, deviceDescription, status, sensorValue, sensorValueUnit):
-        '''
-        TODO
-        '''
-
-        return None
 
     def _check_fan(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
@@ -676,6 +663,40 @@ class CheckInfortrend(Snmp):
 
         return None
 
+    def _check_generic_device(self, deviceDescription, status, sensorValue, sensorValueUnit):
+        '''
+            Check used for generic devices where we just want an OK/KO
+            For instance:
+             - Enclosure Management Services Controller
+             - Host Board
+             - Midplane / backplane
+             - Enclosure Drawer
+        '''
+
+        # If status is 0 everything is copacetic
+        if status != 0:
+            outputLine = []
+
+            outputLine.append(deviceDescription + ':') # Begin our output line
+
+            binary = self._convertIntegerToBinaryAndFormat(status)
+
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
+                       'binary:%s') % (deviceDescription, sensorValue,
+                                            status, binary)
+            try:
+                if binary[-1] == '1':
+                    outputLine.append(deviceDescription + ' malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+
+            self.output.append(' '.join(outputLine))
+
+        return None
+
+
     def _check_hdd_model_serial_number(self, hdd):
         '''
         For internal use, grabs the model and serial number for the d
@@ -754,12 +775,6 @@ class CheckInfortrend(Snmp):
 
         return None
 
-    def _check_host_board(self, deviceDescription, status, sensorValue, sensorValueUnit):
-        '''
-        TODO
-        '''
-
-        return None
 
     def _check_ld_status(self, logicalDrives):
         '''
@@ -798,17 +813,39 @@ class CheckInfortrend(Snmp):
 
     def _check_led(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
-        TODO
+            Check led status.
+            ** Even if led is active, don't raise a warning. It's too common.
+                 LED:
+                     BITS 0-5 - Reserved (Set to 0).
+                     BIT 6 - CLEAR:  LED is active
+                             SET:    LED is inactive
+                     BIT 7 - CLEAR:  LED IS present.
+                             SET:    LED is NOT present.
+                     == 0xff - Status unknown.
         '''
+
+        # If status is 0 everything is copacetic
+        if status != 0:
+            outputLine = []
+
+            outputLine.append(deviceDescription + ':') # Begin our output line
+
+            binary = self._convertIntegerToBinaryAndFormat(status)
+
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
+                       'binary:%s') % (deviceDescription, sensorValue,
+                                            status, binary)
+            try:
+                if binary[-7] == '1':
+                    outputLine.append('ON')
+            except IndexError:
+                pass
+
+            self.output.append(' '.join(outputLine))
 
         return None
 
-    def _check_midplane_backplane(self, deviceDescription, status, sensorValue, sensorValueUnit):
-        '''
-        TODO
-        '''
-
-        return None
 
     def _check_null(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
@@ -1206,11 +1243,11 @@ class CheckInfortrend(Snmp):
                           11:(self._check_battery),
                           12:(self._check_led),
                           13:(self._check_cache_data_backup_flash_device),
-                          14:(self._check_host_board),
-                          15:(self._check_midplane_backplane),
+                          14:(self._check_generic_device),
+                          15:(self._check_generic_device),
                           17:(self._check_slot_states),
-                          18:(self._check_enclosure_drawer),
-                          31:(self._check_enclosure_management_services_controller),
+                          18:(self._check_generic_device),
+                          31:(self._check_generic_device),
                           }
 
         # Description as a string
