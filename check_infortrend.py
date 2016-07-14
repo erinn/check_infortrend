@@ -385,8 +385,36 @@ class CheckInfortrend(Snmp):
 
     def _check_cache_data_backup_flash_device(self, deviceDescription, status, sensorValue, sensorValueUnit):
         '''
-        TODO
+          Cache-Data-Backup Flash Device:
+             BIT 0 - CLEAR:  Flash Device functioning normally.
+                     SET:    Flash Device malfunctioning.
+             BITS 1-5 - Reserved (Set to 0).
+             BIT 6 - CLEAR:  Flash Device is enabled.
+                     SET:    Flash Device is disabled.
+             BIT 7 - CLEAR:  Flash Device IS present.
+                     SET:    Flash Device is NOT present.
+             == 0xff - Status unknown.
         '''
+        # If status is 0 everything is copacetic
+        if status != 0:
+            outputLine = []
+
+            outputLine.append(deviceDescription + ':') # Begin our output line
+
+            binary = self._convertIntegerToBinaryAndFormat(status)
+
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
+                       'binary:%s') % (deviceDescription, sensorValue,
+                                            status, binary)
+            try:
+                if binary[-1] == '1':
+                    outputLine.append('Flash Device malfunctioning')
+                    self.state['critical'] += 1
+            except IndexError:
+                pass
+
+            self.output.append(' '.join(outputLine))
 
         return None
 
