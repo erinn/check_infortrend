@@ -1244,7 +1244,7 @@ class CheckInfortrend(Snmp):
                           12:(self._check_led),
                           13:(self._check_cache_data_backup_flash_device),
                           14:(self._check_generic_device),
-                          15:(self._check_generic_device),
+                          15:(self._check_null),
                           17:(self._check_slot_states),
                           18:(self._check_generic_device),
                           31:(self._check_generic_device),
