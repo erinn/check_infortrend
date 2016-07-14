@@ -918,7 +918,7 @@ class CheckInfortrend(Snmp):
             temperature = sensorValue
         else:
             # Temperature is in Celsius
-            temperature = (sensorValue / 2 ** 17 )  - 274
+            temperature = (sensorValue - 274) / 10
 
         warnTemp = '70'
         critTemp = '80'
