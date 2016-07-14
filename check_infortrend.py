@@ -332,8 +332,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -405,8 +405,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -461,8 +461,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -571,8 +571,8 @@ class CheckInfortrend(Snmp):
         else:
             fanSpeed = fanSpeeds[sensorValue]
 
-        if self.verbose > 1:
-            print 'Debug2: Fan speed is:%s rpm.'% (fanSpeed)
+        if self.verbose > 0:
+            print 'Debug1: Fan speed is:%s rpm.'% (fanSpeed)
 
         self.perfData.append("'%s'=%s;%s;%s;%s;%s"
                              % (deviceDescription,
@@ -586,8 +586,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -671,8 +671,8 @@ class CheckInfortrend(Snmp):
                          }
 
         for drive, status in enumerate(hdds):
-            if self.verbose > 1:
-                print 'Debug2: checking drive:', drive, 'with status:', status
+            if self.verbose > 0:
+                print 'Debug1: checking drive:', drive, 'with status:', status
 
             # Drive Absent is something blacklistable. Check it
             if status == 63 and self.blacklist.count('absent_drives'):
@@ -720,8 +720,8 @@ class CheckInfortrend(Snmp):
                          }
 
         for drive, status in enumerate(logicalDrives):
-            if self.verbose > 1:
-                print ('Debug2: Checking logical drive: '
+            if self.verbose > 0:
+                print ('Debug1: Checking logical drive: '
                        '%s with status: %s') % (drive, status)
 
             if status in criticalCodes:
@@ -773,8 +773,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -817,8 +817,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -861,8 +861,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -937,8 +937,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -1003,8 +1003,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s '
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s '
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -1069,8 +1069,8 @@ class CheckInfortrend(Snmp):
 
             binary = self._convertIntegerToBinaryAndFormat(status)
 
-            if self.verbose > 1:
-                print ('Debug2: Device:%s, Value:%s, Status code:%s'
+            if self.verbose > 0:
+                print ('Debug1: Device:%s, Value:%s, Status code:%s'
                        'binary:%s') % (deviceDescription, sensorValue,
                                             status, binary)
 
@@ -1171,8 +1171,8 @@ class CheckInfortrend(Snmp):
                                         deviceStatus[number],
                                         deviceValue[number])
             else:
-                if self.verbose > 1:
-                    print '######Debug2: Device blacklisted ->', blacklistoptions[device]
+                if self.verbose > 0:
+                    print 'Debug1: Device blacklisted ->', blacklistoptions[device]
         return None
 
     def check_drive_status(self):
@@ -1224,8 +1224,8 @@ class CheckInfortrend(Snmp):
         check, driveStatus =  self._query(hddStatus)
         self._check_hdd_status(driveStatus)
 
-        if self.verbose > 1:
-            print 'Debug2: Output from checkDriveStatus:', self.output
+        if self.verbose > 0:
+            print 'Debug1: Output from checkDriveStatus:', self.output
 
         return None
 
@@ -1266,8 +1266,8 @@ class CheckInfortrend(Snmp):
         self.output.append('Firmware Version:%s.%s' % (firmwareMajor,
                                                        firmwareMinor))
 
-        if self.verbose > 1:
-            print 'Debug2: Output from checkModelFirmware:', self.output
+        if self.verbose > 0:
+            print 'Debug1: Output from checkModelFirmware:', self.output
 
         return None
 
@@ -1306,8 +1306,8 @@ class CheckInfortrend(Snmp):
 
         finalOutput = '%s:%s'
 
-        if self.verbose > 1:
-            print ('Debug2: Results passed to parsePrint: '
+        if self.verbose > 0:
+            print ('Debug1: Results passed to parsePrint: '
                    '%s %s') % (self.state, self.output)
 
         if self.state['critical']:
@@ -1406,9 +1406,9 @@ if __name__ == '__main__':
 
     (options, args) = parser.parse_args()
 
-    if options.verbose > 1:
-        print 'Debug2: Options taken in:', options
-        print 'Debug2: Arguments taken in:', args
+    if options.verbose > 0:
+        print 'Debug1: Options taken in:', options
+        print 'Debug1: Arguments taken in:', args
 
     signal.signal(signal.SIGALRM, sigalarm_handler)
 
